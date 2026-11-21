@@ -21,7 +21,7 @@ func main() {
 
 func proxyTFTP(w tftp.ReadRequest) {
 	log.Printf("[%s] GET %s\n", w.Addr().IP.String(), w.Name() )
-	file, err := os.Open("/tftpboot/" + w.Name()) // For read access.
+	file, err := os.OpenInRoot("/tftpboot/", w.Name()) // For read access.
 	if err != nil {
 		log.Println(err)
 		w.WriteError(tftp.ErrCodeFileNotFound, err.Error())
