@@ -3,6 +3,7 @@ name: Publish Docker Hub image
 on:
   push:
     branches: [master]
+    tags: ["v*"]
     paths:
       - "Dockerfile"
       - "*.go"
@@ -34,12 +35,49 @@ jobs:
           username: darkautism
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Generate image tags
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: darkautism/k8s-tftp
+          flavor: |
+            latest=false
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=long
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+
       - name: Build and push multi-platform image
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            darkautism/k8s-tftp:latest
-            darkautism/k8s-tftp:sha-${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Publish architecture-specific tags
+        shell: bash
+        env:
+          PUBLISHED_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          mapfile -t tags <<< "$PUBLISHED_TAGS"
+          if [[ -z "${tags[0]}" ]]; then
+            echo "No Docker image tags were generated" >&2
+            exit 1
+          fi
+
+          for arch in amd64 arm64; do
+            arch_tags=()
+            for tag in "${tags[@]}"; do
+              [[ -n "$tag" ]] && arch_tags+=(--tag "${tag}-${arch}")
+            done
+
+            # Reuse the pushed platform manifest without rebuilding the image.
+            docker buildx imagetools create \
+              --platform "linux/${arch}" \
+              "${arch_tags[@]}" \
+              "${tags[0]}"
+          done
